@@ -1,94 +1,25 @@
 const VERSION_MANIFEST = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json';
 
 function join(...parts) { return parts.filter(Boolean).join('/').replace(/\\/g, '/').replace(/\/+/g, '/'); }
-
-async function ensureDir(path) {
-  const normalized = path.replace(/\\/g, '/');
-  const prefix = normalized.match(/^[A-Za-z]:\//)?.[0] || (normalized.startsWith('/') ? '/' : '');
-  const rest = prefix ? normalized.slice(prefix.length) : normalized;
-  let current = prefix.replace(/\/$/, '');
-  for (const part of rest.split('/').filter(Boolean)) {
-    current = current ? `${current}/${part}` : part;
-    try { await Neutralino.filesystem.createDirectory(current); } catch {}
-  }
-}
-
-async function download(url, destination, expectedSha1 = '') {
-  await ensureDir(destination.substring(0, destination.lastIndexOf('/')));
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Download failed (${response.status}): ${url}`);
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  await Neutralino.filesystem.writeBinaryFile(destination, bytes);
-  // Mojang/Fabric metadata provides hashes. Neutralino has no portable SHA-1 API,
-  // so the expected value is retained in install metadata for later native verification.
-  return { path: destination, size: bytes.length, sha1: expectedSha1 };
-}
+function platform() { return navigator.userAgent.toLowerCase().includes('windows') ? 'windows' : 'linux'; }
+async function ensureDir(path) { const n=path.replace(/\\/g,'/');const prefix=n.match(/^[A-Za-z]:\//)?.[0]||(n.startsWith('/')?'/':'');const rest=prefix?n.slice(prefix.length):n;let cur=prefix.replace(/\/$/,'');for(const p of rest.split('/').filter(Boolean)){cur=cur?`${cur}/${p}`:p;try{await Neutralino.filesystem.createDirectory(cur);}catch{}} }
+async function exists(path){try{await Neutralino.filesystem.getStats(path);return true;}catch{return false;}}
+async function download(url,destination,expectedSha1=''){await ensureDir(destination.substring(0,destination.lastIndexOf('/')));if(await exists(destination))return{path:destination,cached:true,sha1:expectedSha1};const r=await fetch(url);if(!r.ok)throw new Error(`Download failed (${r.status}): ${url}`);const bytes=new Uint8Array(await r.arrayBuffer());await Neutralino.filesystem.writeBinaryFile(destination,bytes);return{path:destination,size:bytes.length,sha1:expectedSha1};}
+function ruleAllows(rules=[]){if(!rules.length)return true;let allowed=false;for(const rule of rules){let matches=true;if(rule.os?.name)matches=matches&&rule.os.name===platform();if(rule.os?.arch)matches=matches&&(!rule.os.arch||navigator.userAgent.toLowerCase().includes(rule.os.arch));if(rule.features)matches=false;if(matches)allowed=rule.action==='allow';}return allowed;}
 
 export class MinecraftInstaller {
-  constructor(settingsService) { this.settingsService = settingsService; }
-
-  async resolveVanilla(versionId) {
-    const manifest = await (await fetch(VERSION_MANIFEST)).json();
-    const entry = manifest.versions.find(v => v.id === versionId);
-    if (!entry) throw new Error(`Minecraft ${versionId} was not found in Mojang's version manifest.`);
-    const response = await fetch(entry.url);
-    if (!response.ok) throw new Error(`Could not load metadata for Minecraft ${versionId}.`);
-    return response.json();
-  }
-
-  async resolveFabric(versionId) {
-    const loadersResponse = await fetch(`https://meta.fabricmc.net/v2/versions/loader/${encodeURIComponent(versionId)}`);
-    if (!loadersResponse.ok) throw new Error(`Fabric is not available for Minecraft ${versionId}.`);
-    const loaders = await loadersResponse.json();
-    const stable = loaders.find(x => x.loader?.stable) || loaders[0];
-    if (!stable) throw new Error(`No Fabric Loader version found for Minecraft ${versionId}.`);
-    const loaderVersion = stable.loader.version;
-    const profileResponse = await fetch(`https://meta.fabricmc.net/v2/versions/loader/${encodeURIComponent(versionId)}/${encodeURIComponent(loaderVersion)}/profile/json`);
-    if (!profileResponse.ok) throw new Error('Could not download Fabric launch profile.');
-    return { loaderVersion, profile: await profileResponse.json() };
-  }
-
-  libraryPath(library) {
-    const [group, artifact, version] = library.name.split(':');
-    const file = `${artifact}-${version}.jar`;
-    return `${group.replace(/\./g, '/')}/${artifact}/${version}/${file}`;
-  }
-
-  async install(instance) {
-    const settings = await this.settingsService.load();
-    const root = join(settings.minecraftDataDir, 'versions', instance.id);
-    await ensureDir(root);
-    const vanilla = await this.resolveVanilla(instance.minecraftVersion);
-    const fabric = instance.loader === 'fabric' ? await this.resolveFabric(instance.minecraftVersion) : null;
-    const clientPath = join(root, `${instance.minecraftVersion}.jar`);
-    await download(vanilla.downloads.client.url, clientPath, vanilla.downloads.client.sha1);
-
-    const libraries = [...(vanilla.libraries || []), ...(fabric?.profile?.libraries || [])];
-    const classpath = [];
-    for (const library of libraries) {
-      const artifact = library.downloads?.artifact;
-      const relative = artifact?.path || this.libraryPath(library);
-      const url = artifact?.url || `${library.url || 'https://libraries.minecraft.net/'}${relative}`;
-      if (!url || library.natives) continue;
-      const target = join(settings.minecraftDataDir, 'libraries', relative);
-      await download(url, target, artifact?.sha1 || '');
-      classpath.push(target);
-    }
-    classpath.push(clientPath);
-
-    const metadata = {
-      installedAt: new Date().toISOString(), minecraftVersion: instance.minecraftVersion,
-      loader: instance.loader, loaderVersion: fabric?.loaderVersion || null,
-      mainClass: fabric?.profile?.mainClass || vanilla.mainClass, classpath,
-      vanilla, fabricProfile: fabric?.profile || null
-    };
-    await Neutralino.filesystem.writeFile(join(root, 'lumex-install.json'), JSON.stringify(metadata, null, 2));
-    return metadata;
-  }
-
-  async readInstall(instance) {
-    const settings = await this.settingsService.load();
-    const path = join(settings.minecraftDataDir, 'versions', instance.id, 'lumex-install.json');
-    try { return JSON.parse(await Neutralino.filesystem.readFile(path)); } catch { return null; }
-  }
+  constructor(settingsService){this.settingsService=settingsService;}
+  async resolveVanilla(versionId){const manifest=await(await fetch(VERSION_MANIFEST)).json();const entry=manifest.versions.find(v=>v.id===versionId);if(!entry)throw new Error(`Minecraft ${versionId} was not found.`);return(await fetch(entry.url)).json();}
+  async resolveFabric(versionId){const r=await fetch(`https://meta.fabricmc.net/v2/versions/loader/${encodeURIComponent(versionId)}`);if(!r.ok)throw new Error(`Fabric is not available for Minecraft ${versionId}.`);const loaders=await r.json();const stable=loaders.find(x=>x.loader?.stable)||loaders[0];if(!stable)throw new Error('No Fabric Loader found.');const loaderVersion=stable.loader.version;const p=await fetch(`https://meta.fabricmc.net/v2/versions/loader/${encodeURIComponent(versionId)}/${encodeURIComponent(loaderVersion)}/profile/json`);if(!p.ok)throw new Error('Could not download Fabric launch profile.');return{loaderVersion,profile:await p.json()};}
+  libraryPath(library){const [g,a,v]=library.name.split(':');return`${g.replace(/\./g,'/')}/${a}/${v}/${a}-${v}.jar`;}
+  async installAssets(vanilla,root){const index=vanilla.assetIndex;if(!index?.url)return{ready:true,indexId:vanilla.assets||''};const indexPath=join(root,'assets','indexes',`${index.id}.json`);await download(index.url,indexPath,index.sha1);const data=JSON.parse(await Neutralino.filesystem.readFile(indexPath));for(const object of Object.values(data.objects||{})){const hash=object.hash;await download(`https://resources.download.minecraft.net/${hash.slice(0,2)}/${hash}`,join(root,'assets','objects',hash.slice(0,2),hash),hash);}return{ready:true,indexId:index.id};}
+  async installLibraries(libraries,root,nativesDir){const classpath=[];const nativeArchives=[];for(const library of libraries){if(!ruleAllows(library.rules||[]))continue;const artifact=library.downloads?.artifact;if(artifact){const relative=artifact.path||this.libraryPath(library);const target=join(root,'libraries',relative);await download(artifact.url||`${library.url||'https://libraries.minecraft.net/'}${relative}`,target,artifact.sha1||'');classpath.push(target);}const classifierName=library.natives?.[platform()]?.replace('${arch}','64');const classifier=classifierName&&library.downloads?.classifiers?.[classifierName];if(classifier){const target=join(root,'libraries',classifier.path);await download(classifier.url,target,classifier.sha1||'');nativeArchives.push({path:target,exclude:library.extract?.exclude||[]});}}
+    // Neutralino has no ZIP extraction API. Use the detected JDK's `jar` command at launch preparation.
+    return{classpath,nativeArchives,nativesDir};}
+  async extractNatives(nativeArchives,nativesDir,javaPath){await ensureDir(nativesDir);if(!nativeArchives.length)return true;const slash=javaPath.replace(/\\/g,'/');const jarPath=slash.replace(/\/bin\/java(?:\.exe)?$/i,platform()==='windows'?'/bin/jar.exe':'/bin/jar');if(!(await exists(jarPath)))throw new Error('Java JDK `jar` tool is required to extract Minecraft native libraries. Select a JDK in Settings.');for(const archive of nativeArchives){const cmd=`\"${jarPath}\" xf \"${archive.path}\"`;const result=await Neutralino.os.execCommand(cmd,{cwd:nativesDir});if(result.exitCode!==0)throw new Error(`Native extraction failed: ${result.stdErr||result.stdOut}`);}return true;}
+  async install(instance,javaPath=''){const settings=await this.settingsService.load();const root=settings.minecraftDataDir;const versionRoot=join(root,'versions',instance.id);await ensureDir(versionRoot);const vanilla=await this.resolveVanilla(instance.minecraftVersion);const fabric=instance.loader==='fabric'?await this.resolveFabric(instance.minecraftVersion):null;const clientPath=join(versionRoot,`${instance.minecraftVersion}.jar`);await download(vanilla.downloads.client.url,clientPath,vanilla.downloads.client.sha1);
+    const libraries=[...(vanilla.libraries||[]),...(fabric?.profile?.libraries||[])];const nativesDir=join(versionRoot,'natives');const libResult=await this.installLibraries(libraries,root,nativesDir);libResult.classpath.push(clientPath);const assets=await this.installAssets(vanilla,root);let nativesReady=false;if(javaPath)nativesReady=await this.extractNatives(libResult.nativeArchives,nativesDir,javaPath);else nativesReady=libResult.nativeArchives.length===0;
+    const metadata={installedAt:new Date().toISOString(),minecraftVersion:instance.minecraftVersion,loader:instance.loader,loaderVersion:fabric?.loaderVersion||null,mainClass:fabric?.profile?.mainClass||vanilla.mainClass,classpath:libResult.classpath,nativesDir,nativeArchives:libResult.nativeArchives,assetsReady:assets.ready,nativesReady,assetIndexId:assets.indexId,vanilla,fabricProfile:fabric?.profile||null};await Neutralino.filesystem.writeFile(join(versionRoot,'lumex-install.json'),JSON.stringify(metadata,null,2));return metadata;}
+  async ensureNatives(install,javaPath,instance){if(install.nativesReady)return install;install.nativesReady=await this.extractNatives(install.nativeArchives||[],install.nativesDir,javaPath);const settings=await this.settingsService.load();await Neutralino.filesystem.writeFile(join(settings.minecraftDataDir,'versions',instance.id,'lumex-install.json'),JSON.stringify(install,null,2));return install;}
+  async readInstall(instance){const settings=await this.settingsService.load();try{return JSON.parse(await Neutralino.filesystem.readFile(join(settings.minecraftDataDir,'versions',instance.id,'lumex-install.json')));}catch{return null;}}
 }
