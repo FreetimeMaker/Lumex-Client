@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Lumex Client
+Comment=Lightweight Minecraft launcher and client
+Exec=lumex-client
+Icon=com.freetime.lumexclient
+Terminal=false
+Type=Application
+Categories=Game;
+StartupNotify=true
