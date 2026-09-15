@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.freetime.lumexclient</id>
+  <name>Lumex Client</name>
+  <summary>Lightweight Minecraft launcher and client</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <description>
+    <p>Lumex Client is a lightweight Minecraft launcher/client for Windows and Linux built with Neutralinojs.</p>
+  </description>
+  <launchable type="desktop-id">com.freetime.lumexclient.desktop</launchable>
+  <categories>
+    <category>Game</category>
+  </categories>
+</component>
