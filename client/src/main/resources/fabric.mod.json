@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "lumexclient",
+  "version": "${version}",
+  "name": "Lumex Client",
+  "description": "In-game client module for Lumex Client.",
+  "authors": ["FreetimeMaker"],
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.freetime.lumex.LumexClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.14",
+    "minecraft": "~1.21.1",
+    "java": ">=21"
+  }
+}
