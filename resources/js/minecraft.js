@@ -1,45 +1,17 @@
+function osName(){return navigator.userAgent.toLowerCase().includes('windows')?'windows':'linux';}
+function evaluateRules(rules=[]){if(!rules.length)return true;let allowed=false;for(const rule of rules){let match=true;if(rule.os?.name)match=match&&rule.os.name===osName();if(rule.features)match=false;if(match)allowed=rule.action==='allow';}return allowed;}
+function flattenArguments(entries=[],replace=x=>x){const out=[];for(const entry of entries){if(typeof entry==='string'){out.push(replace(entry));continue;}if(entry?.rules&&!evaluateRules(entry.rules))continue;const value=entry?.value;if(Array.isArray(value))out.push(...value.map(replace));else if(typeof value==='string')out.push(replace(value));}return out;}
+
 export class MinecraftService {
-  constructor(settingsService, javaService, instanceService, installer, authService) { Object.assign(this,{settingsService,javaService,instanceService,installer,authService}); }
-
-  async launch(instanceId,onProgress=()=>{}) {
-    const instance=(await this.instanceService.list()).find(x=>x.id===instanceId);if(!instance)throw new Error('Instance not found');
-    const settings=await this.settingsService.load();let javaPath=settings.javaPath;
-    if(!javaPath){const d=await this.javaService.detect();if(!d.found)throw new Error('Java was not found. Install Java or select it in Settings.');javaPath=d.path;}
-    if(!instance.minecraftVersion)throw new Error('This instance has no Minecraft version configured.');
-    let install=await this.installer.readInstall(instance);
-    if(!install){onProgress(`Installing Minecraft ${instance.minecraftVersion} and ${instance.loader||'vanilla'}…`);install=await this.installer.install(instance);}
-    const session=await this.authService.getSession();
-    if(!session?.accessToken||!session?.profile)throw new Error('Sign in with Microsoft before launching Minecraft.');
-    if(session.expiresAt&&Date.now()>=session.expiresAt)throw new Error('Minecraft session expired. Sign in again.');
-
-    // The installer now downloads the client and Java libraries and resolves Fabric.
-    // Assets and native-library extraction are the remaining install stage before
-    // spawning Minecraft; refusing here avoids launching a known-broken game.
-    if(!install.assetsReady||!install.nativesReady){
-      return {launched:false,message:'Core game + Fabric installed. Asset/native installation is the next required stage before first launch.'};
-    }
-
-    const args=this.buildGameArgs(install,instance,session,settings);
-    const command=this.buildJavaCommand({javaPath,maxMemoryMb:settings.maxMemoryMb,classpath:install.classpath,mainClass:install.mainClass,gameArgs:args.gameArgs,jvmArgs:args.jvmArgs});
-    onProgress('Starting Minecraft…');
-    const result=await Neutralino.os.spawnProcess(command,settings.minecraftDataDir);
-    return {launched:true,processId:result.id,message:`Minecraft started (PID ${result.id}).`};
-  }
-
-  buildGameArgs(install,instance,session,settings){
-    const v=install.vanilla;const replacements={
-      '${auth_player_name}':session.profile.name,'${version_name}':instance.minecraftVersion,'${game_directory}':settings.minecraftDataDir,
-      '${assets_root}':`${settings.minecraftDataDir}/assets`,'${assets_index_name}':v.assetIndex?.id||v.assets||'',
-      '${auth_uuid}':session.profile.id,'${auth_access_token}':session.accessToken,'${clientid}':'','${auth_xuid}':'','${user_type}':'msa','${version_type}':'release'
-    };
-    const replace=s=>Object.entries(replacements).reduce((x,[a,b])=>x.split(a).join(String(b)),String(s));
-    const raw=v.arguments?.game||v.minecraftArguments?.split(' ')||[];
-    const gameArgs=[];for(const arg of raw){if(typeof arg==='string')gameArgs.push(replace(arg));}
-    return {gameArgs,jvmArgs:[]};
-  }
-
-  buildJavaCommand({javaPath,maxMemoryMb,classpath,mainClass,gameArgs=[],jvmArgs=[]}){
-    const quote=v=>`\"${String(v).replace(/\"/g,'\\\"')}\"`;const sep=navigator.userAgent.toLowerCase().includes('windows')?';':':';
-    return [quote(javaPath),quote(`-Xmx${maxMemoryMb}M`),...jvmArgs.map(quote),'-cp',quote(classpath.join(sep)),quote(mainClass),...gameArgs.map(quote)].join(' ');
-  }
+  constructor(settingsService,javaService,instanceService,installer,authService){Object.assign(this,{settingsService,javaService,instanceService,installer,authService});}
+  async launch(instanceId,onProgress=()=>{}){const instance=(await this.instanceService.list()).find(x=>x.id===instanceId);if(!instance)throw new Error('Instance not found');const settings=await this.settingsService.load();let javaPath=settings.javaPath;if(!javaPath){const d=await this.javaService.detect();if(!d.found)throw new Error('Java was not found. Install/select a JDK in Settings.');javaPath=d.path;}if(!instance.minecraftVersion)throw new Error('This instance has no Minecraft version configured.');let install=await this.installer.readInstall(instance);if(!install){onProgress(`Installing Minecraft ${instance.minecraftVersion}…`);install=await this.installer.install(instance,javaPath);}if(!install.assetsReady)throw new Error('Minecraft assets are incomplete. Reinstall this instance.');if(!install.nativesReady){onProgress('Extracting native libraries…');install=await this.installer.ensureNatives(install,javaPath,instance);}const session=await this.authService.getSession();if(!session?.accessToken||!session?.profile)throw new Error('Sign in with Microsoft before launching Minecraft.');if(session.expiresAt&&Date.now()>=session.expiresAt)throw new Error('Minecraft session expired. Sign in again.');const args=this.buildArguments(install,instance,session,settings);const command=this.buildJavaCommand({javaPath,maxMemoryMb:settings.maxMemoryMb,classpath:install.classpath,mainClass:install.mainClass,gameArgs:args.gameArgs,jvmArgs:args.jvmArgs});onProgress('Starting Minecraft…');const result=await Neutralino.os.spawnProcess(command,settings.minecraftDataDir);return{launched:true,processId:result.id,message:`Minecraft started (PID ${result.id}).`};}
+  buildArguments(install,instance,session,settings){const v=install.vanilla;const sep=osName()==='windows'?';':':';const replacements={
+    '${auth_player_name}':session.profile.name,'${version_name}':instance.minecraftVersion,'${game_directory}':settings.minecraftDataDir,'${assets_root}':`${settings.minecraftDataDir}/assets`,'${assets_index_name}':install.assetIndexId||v.assetIndex?.id||v.assets||'','${auth_uuid}':session.profile.id,'${auth_access_token}':session.accessToken,'${clientid}':'','${auth_xuid}':'','${user_type}':'msa','${version_type}':v.type||'release','${natives_directory}':install.nativesDir,'${launcher_name}':'lumex','${launcher_version}':'0.1.0','${classpath}':install.classpath.join(sep),'${classpath_separator}':sep,'${library_directory}':`${settings.minecraftDataDir}/libraries`
+  };const replace=s=>Object.entries(replacements).reduce((x,[a,b])=>x.split(a).join(String(b)),String(s));
+    const vanillaGame=v.arguments?.game?flattenArguments(v.arguments.game,replace):(v.minecraftArguments||'').split(' ').filter(Boolean).map(replace);const fabricGame=flattenArguments(install.fabricProfile?.arguments?.game||[],replace);const gameArgs=[...vanillaGame,...fabricGame];
+    const vanillaJvm=flattenArguments(v.arguments?.jvm||[],replace);const fabricJvm=flattenArguments(install.fabricProfile?.arguments?.jvm||[],replace);let jvmArgs=[...vanillaJvm,...fabricJvm];
+    // Lumex supplies the classpath itself to avoid duplicate -cp arguments from metadata.
+    const cleaned=[];for(let i=0;i<jvmArgs.length;i++){if(jvmArgs[i]==='-cp'||jvmArgs[i]==='-classpath'){i++;continue;}cleaned.push(jvmArgs[i]);}jvmArgs=cleaned.filter(x=>!x.includes('${classpath}'));
+    if(!jvmArgs.some(x=>x.startsWith('-Djava.library.path=')))jvmArgs.push(`-Djava.library.path=${install.nativesDir}`);return{gameArgs,jvmArgs};}
+  buildJavaCommand({javaPath,maxMemoryMb,classpath,mainClass,gameArgs=[],jvmArgs=[]}){const quote=v=>`\"${String(v).replace(/\"/g,'\\\"')}\"`;const sep=osName()==='windows'?';':':';return[quote(javaPath),quote(`-Xmx${maxMemoryMb}M`),...jvmArgs.map(quote),'-cp',quote(classpath.join(sep)),quote(mainClass),...gameArgs.map(quote)].join(' ');}
 }
