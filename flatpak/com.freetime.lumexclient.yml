@@ -1,0 +1,25 @@
+app-id: com.freetime.lumexclient
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: lumex-client
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --device=dri
+modules:
+  - name: lumex-client
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 bin/lumex-client /app/bin/lumex-client
+      - install -d /app/share/lumex-client
+      - cp -r resources /app/share/lumex-client/resources
+      - cp neutralino.config.json /app/share/lumex-client/neutralino.config.json
+      - install -Dm644 flatpak/com.freetime.lumexclient.desktop /app/share/applications/com.freetime.lumexclient.desktop
+      - install -Dm644 flatpak/com.freetime.lumexclient.metainfo.xml /app/share/metainfo/com.freetime.lumexclient.metainfo.xml
+    sources:
+      - type: dir
+        path: ..
