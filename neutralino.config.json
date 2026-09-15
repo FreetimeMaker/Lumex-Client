@@ -1,0 +1,44 @@
+{
+  "applicationId": "com.freetime.lumexclient",
+  "version": "0.1.0",
+  "defaultMode": "window",
+  "port": 0,
+  "documentRoot": "/resources/",
+  "url": "/",
+  "enableServer": true,
+  "enableNativeAPI": true,
+  "nativeAllowList": [
+    "app.*",
+    "computer.*",
+    "debug.*",
+    "events.*",
+    "filesystem.*",
+    "os.*",
+    "storage.*",
+    "updater.*",
+    "window.*"
+  ],
+  "modes": {
+    "window": {
+      "title": "Lumex Client",
+      "width": 1180,
+      "height": 720,
+      "minWidth": 900,
+      "minHeight": 600,
+      "center": true,
+      "resizable": true,
+      "borderless": false,
+      "maximize": false,
+      "hidden": false,
+      "exitProcessOnClose": true
+    }
+  },
+  "cli": {
+    "binaryName": "lumex-client",
+    "resourcesPath": "/resources/",
+    "extensionsPath": "/extensions/",
+    "clientLibrary": "/resources/js/neutralino.js",
+    "binaryVersion": "6.3.0",
+    "clientVersion": "6.3.0"
+  }
+}
